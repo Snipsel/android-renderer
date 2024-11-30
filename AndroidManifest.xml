@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="${package_name}">
+	<uses-sdk android:minSdkVersion="${android_version}"
+              android:targetSdkVersion="${android_version}"/>
+    <uses-permission android:name="android.permission.SET_RELEASE_APP"/>
+    <application android:debuggable="true"
+                 android:hasCode="false"
+                 android:label="${name}">
+        <activity android:exported="true"
+                  android:configChanges="keyboardHidden|orientation"
+                  android:label="${name}"
+                  android:name="android.app.NativeActivity">
+            <meta-data android:name="android.app.lib_name"
+                       android:value="${name}"/>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
