@@ -1,4 +1,5 @@
 #pragma once
+#include "global.h"
 #include "include.h"
 
 VkShaderModule create_shader_module(uint32_t const* spv, size_t size_bytes){
@@ -210,7 +211,7 @@ void init_vulkan_device(){
         debug("allocating staging buffer");
         VkBufferCreateInfo const buffer_info{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size  = (VkDeviceSize)mesh.albedo_width*mesh.albedo_height*4,
+            .size  = (VkDeviceSize)mesh.total_size(),
             .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         };
@@ -232,8 +233,8 @@ void init_vulkan_device(){
         VKCHECK(vkBindBufferMemory(vk::device, vk::staging_buffer, staging_memory, 0));
         VKCHECK(vkMapMemory(vk::device, staging_memory, 0, req.size, 0, &vk::staging_buffer_ptr));
 
-        // upload image
-        AAsset_read(mesh.albedo_asset, vk::staging_buffer_ptr, mesh.albedo_width*mesh.albedo_height*4);
+        // upload mesh
+        AAsset_read(mesh.asset, vk::staging_buffer_ptr, mesh.total_size());
         VkMappedMemoryRange const flush_range{
             .sType  = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
             .memory = staging_memory,
@@ -320,7 +321,7 @@ void init_vulkan_device(){
         VkBufferCreateInfo const buffer_info{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size  = (uint64_t)mesh.total_size(),
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         };
         VKCHECK(vkCreateBuffer(vk::device, &buffer_info, nullptr, &vk::vertex_buffer));
@@ -331,22 +332,11 @@ void init_vulkan_device(){
         VkMemoryAllocateInfo const memalloc_info{
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize = mem_requirements.size,
-            .memoryTypeIndex = vk::uncached_memidx
+            .memoryTypeIndex = vk::device_local_memidx,
         };
         VkDeviceMemory vertex_buffer_mem;
         VKCHECK(vkAllocateMemory(vk::device, &memalloc_info, nullptr, &vertex_buffer_mem));
         VKCHECK(vkBindBufferMemory(vk::device, vk::vertex_buffer, vertex_buffer_mem, mesh.pos_offset()));
-
-        void* vertex_buffer;
-        VKCHECK(vkMapMemory(vk::device, vertex_buffer_mem, 0, buffer_info.size, 0, &vertex_buffer));
-        AAsset_read(mesh.geometry_asset, vertex_buffer, mesh.total_size());
-        VkMappedMemoryRange const range{
-            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-            .memory = vertex_buffer_mem,
-            .offset = 0,
-            .size = buffer_info.size,
-        };
-        VKCHECK(vkFlushMappedMemoryRanges(vk::device, 1, &range));
     }
 
     ////////////////////////////////////////////////////////////////////////////////
@@ -458,7 +448,7 @@ void init_vulkan_device(){
 
         // copy staging buffer to image
         VkBufferImageCopy region{
-            .bufferOffset      = 0, // 0 means tightly packed
+            .bufferOffset      = mesh.albedo_offset(),
             .bufferRowLength   = 0, // 0 means tightly packed
             .bufferImageHeight = 0, // 0 means tightly packed
             .imageSubresource = {
@@ -471,6 +461,14 @@ void init_vulkan_device(){
             .imageExtent = { (uint32_t)mesh.albedo_width, (uint32_t)mesh.albedo_height, 1 }
         };
         vkCmdCopyBufferToImage(vk::cmd, vk::staging_buffer, vk::albedo_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        // copy geometry
+        VkBufferCopy const geometry_region{
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size      = mesh.geometry_size(),
+        };
+        vkCmdCopyBuffer(vk::cmd, vk::staging_buffer, vk::vertex_buffer, 1, &geometry_region);
 
         // transition layout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
         VkImageMemoryBarrier const img_copy_barriers[]{{
@@ -498,13 +496,13 @@ void init_vulkan_device(){
             0, nullptr,
             LEN(img_copy_barriers), img_copy_barriers);
 
-        vkEndCommandBuffer(vk::cmd);
+        VKCHECK(vkEndCommandBuffer(vk::cmd));
         VkSubmitInfo submit_info{
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .commandBufferCount = 1,
             .pCommandBuffers = &vk::cmd,
         };
-        vkQueueSubmit(vk::graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        VKCHECK(vkQueueSubmit(vk::graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
     }
 
     ////////////////////////////////////////////////////////////////////////////////

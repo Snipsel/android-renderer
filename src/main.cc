@@ -68,8 +68,8 @@ void ANativeActivity_onCreate(ANativeActivity* activity,
     clock_gettime(CLOCK_REALTIME, &ts_on_create);
     debug("============================================================");
 
-    damaged_helmet.geometry_asset = AAssetManager_open(activity->assetManager, damaged_helmet.filename, AASSET_MODE_BUFFER);
-    damaged_helmet.albedo_asset   = AAssetManager_open(activity->assetManager, damaged_helmet.albedo,   AASSET_MODE_BUFFER);
+    damaged_helmet.asset = AAssetManager_open(activity->assetManager, damaged_helmet.filename, AASSET_MODE_BUFFER);
+    //damaged_helmet.albedo_asset   = AAssetManager_open(activity->assetManager, damaged_helmet.albedo,   AASSET_MODE_BUFFER);
     //gizmo.asset          = AAssetManager_open(activity->assetManager, gizmo.filename, AASSET_MODE_BUFFER);
 
     if(vk::device == VK_NULL_HANDLE)

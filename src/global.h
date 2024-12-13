@@ -5,11 +5,9 @@ struct Mesh{
     char const* filename;
     int32_t vertex_count;
     int32_t index_count;
-    char const* albedo;
     int32_t albedo_width;
     int32_t albedo_height;
-    AAsset* geometry_asset;
-    AAsset* albedo_asset;
+    AAsset* asset;
 
     static constexpr VkFormat pos_format   = VK_FORMAT_R32G32B32_SFLOAT;
     static constexpr int32_t  pos_stride   = 3*sizeof(float);
@@ -17,14 +15,17 @@ struct Mesh{
     static constexpr int32_t  uv_stride    = 2*sizeof(float);
     static constexpr int32_t  index_stride = sizeof(uint16_t);
 
-    int32_t pos_offset()   const { return 0; }
-    int32_t pos_size()     const { return vertex_count*pos_stride; }
-    int32_t uv_offset()    const { return pos_offset()+pos_size(); }
-    int32_t uv_size()      const { return vertex_count*uv_stride; }
-    int32_t index_offset() const { return uv_offset()+uv_size(); }
-    int32_t index_size()   const { return index_count*index_stride; }
+    inline VkDeviceSize pos_offset()    const { return 0; }
+    inline VkDeviceSize pos_size()      const { return vertex_count*pos_stride; }
+    inline VkDeviceSize uv_offset()     const { return pos_offset()+pos_size(); }
+    inline VkDeviceSize uv_size()       const { return vertex_count*uv_stride; }
+    inline VkDeviceSize index_offset()  const { return uv_offset()+uv_size(); }
+    inline VkDeviceSize index_size()    const { return index_count*index_stride; }
+    inline VkDeviceSize albedo_offset() const { return index_offset()+index_size(); }
+    inline VkDeviceSize albedo_size()   const { return 4*albedo_width*albedo_height; }
 
-    int32_t total_size()   const {return index_offset()+index_size(); }
+    inline VkDeviceSize geometry_size() const {return albedo_offset(); }
+    inline VkDeviceSize total_size()    const {return albedo_offset()+albedo_size(); }
 };
 
 struct PushConstants{
@@ -154,6 +155,7 @@ DECL(vkCreateDescriptorPool)
 DECL(vkAllocateDescriptorSets)
 DECL(vkUpdateDescriptorSets)
 
+DECL(vkCmdCopyBuffer)
 DECL(vkCmdCopyBufferToImage)
 DECL(vkCmdBeginRenderPass)
 DECL(vkCmdEndRenderPass)
@@ -220,6 +222,7 @@ void load_device_funcs(PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr){
     FN(vkAllocateDescriptorSets)
     FN(vkUpdateDescriptorSets)
 
+    FN(vkCmdCopyBuffer)
     FN(vkCmdCopyBufferToImage)
     FN(vkCmdBeginRenderPass)
     FN(vkCmdEndRenderPass)

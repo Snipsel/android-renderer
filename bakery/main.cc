@@ -5,8 +5,32 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 
-void load_mesh(char const * inpath){
+struct Extent{ int width, height; };
+
+Extent write_img(aiScene const& scene, aiTextureType texture_type, char const* inpath, int inpath_len, FILE* outfile){
     stbi_set_flip_vertically_on_load(true);
+    aiMesh const& mesh = **scene.mMeshes;
+    aiString albedo_path = {};
+    if(scene.mMaterials[mesh.mMaterialIndex]->GetTexture(texture_type, mesh.mMaterialIndex, &albedo_path)!=AI_SUCCESS)
+        return Extent{0,0};
+    static char albedo_in_path[1<<10];
+    snprintf(albedo_in_path, sizeof(albedo_in_path), "%.*s/%s", inpath_len, inpath, albedo_path.data);
+
+    FILE* in_albedo = fopen(albedo_in_path, "rb");
+    if(!in_albedo){
+        fprintf(stderr, "file not found: \"%s\"\n", albedo_in_path);
+        exit(1);
+    }
+    Extent ret = {0,0};
+    uint8_t* pixels = stbi_load_from_file(in_albedo, &ret.width, &ret.height, NULL, 4);
+    fclose(in_albedo);
+
+    fwrite(pixels, 4*ret.width*ret.height, 1, outfile);
+    stbi_image_free(pixels);
+    return ret;
+}
+
+void load_mesh(char const * inpath){
     aiScene const* const scene = aiImportFile(inpath,
         aiProcess_CalcTangentSpace       |
         aiProcess_Triangulate            |
@@ -36,34 +60,6 @@ void load_mesh(char const * inpath){
     float*    const out_uv     = (float*)malloc(out_uv_size);
     uint16_t* const out_idx    = (uint16_t*)malloc(out_idx_size);
 
-    static char outpath[1<<10];
-
-    aiString albedo_path = {};
-    int albedo_ext_index=0;
-    int albedo_width=0, albedo_height=0;
-    if(scene->mMaterials[mesh.mMaterialIndex]->GetTexture(aiTextureType_BASE_COLOR, mesh.mMaterialIndex, &albedo_path)==AI_SUCCESS){
-        static char albedo_in_path[1<<10];
-        snprintf(albedo_in_path, sizeof(albedo_in_path), "%.*s/%s", parent_index, inpath, albedo_path.data);
-
-        albedo_ext_index = albedo_path.length-1;
-        while(albedo_ext_index>=0 && albedo_path.data[albedo_ext_index]!='.')
-            --albedo_ext_index;
-
-        FILE* in_albedo = fopen(albedo_in_path, "rb");
-        if(!in_albedo){
-            fprintf(stderr, "file not found: \"%s\"\n", albedo_in_path);
-            exit(1);
-        }
-        uint8_t* pixels = stbi_load_from_file(in_albedo, &albedo_width, &albedo_height, NULL, 4);
-        fclose(in_albedo);
-
-        auto const out_albedo_size = albedo_width*albedo_height*4;
-        snprintf(outpath, sizeof(outpath), "assets/%.*s", albedo_ext_index, albedo_path.data);
-        FILE* out_albedo_file = fopen(outpath, "wb");
-        fwrite(pixels, out_albedo_size, 1, out_albedo_file);
-        fclose(out_albedo_file);
-        stbi_image_free(pixels);
-    }
 
     for(int i=0; i<mesh.mNumVertices; i++){
         out_pos[3*i+0] = mesh.mVertices[i].x;
@@ -78,16 +74,9 @@ void load_mesh(char const * inpath){
         out_idx[3*i+2] = (uint16_t)mesh.mFaces[i].mIndices[2];
     }
 
+    fprintf(stderr, "faces: %d\n", mesh.mNumFaces);
 
-    printf("Mesh %s{\n", mesh.mName.data);
-    printf("    .filename      = \"%s\",\n",   mesh.mName.data);
-    printf("    .vertex_count  = %u,\n",       mesh.mNumVertices);
-    printf("    .index_count   = %u,\n",       mesh.mNumFaces*3);
-    printf("    .albedo        = \"%.*s\",\n", albedo_ext_index, albedo_path.data);
-    printf("    .albedo_width  = %u,\n",       albedo_width);
-    printf("    .albedo_height = %u,\n",       albedo_height);
-    printf("};\n");
-
+    static char outpath[1<<10];
     snprintf(outpath, sizeof(outpath), "assets/%s", mesh.mName.data);
     fprintf(stderr, "%s -> %s\n", inpath, outpath);
     FILE* outfile = fopen(outpath, "wb");
@@ -98,12 +87,22 @@ void load_mesh(char const * inpath){
     fwrite(out_pos, out_pos_size, 1, outfile);
     fwrite(out_uv,  out_uv_size,  1, outfile);
     fwrite(out_idx, out_idx_size, 1, outfile);
+    Extent albedo = write_img(*scene, aiTextureType_BASE_COLOR, inpath, parent_index, outfile);
     fclose(outfile);
+
+    printf("Mesh %s{\n", mesh.mName.data);
+    printf("    .filename      = \"%s\",\n", mesh.mName.data);
+    printf("    .vertex_count  = %u,\n",     mesh.mNumVertices);
+    printf("    .index_count   = %u,\n",     3*mesh.mNumFaces);
+    printf("    .albedo_width  = %u,\n",     albedo.width);
+    printf("    .albedo_height = %u,\n",     albedo.height);
+    printf("};\n");
 
     free(out_idx);
     free(out_uv);
     free(out_pos);
     aiReleaseImport(scene);
+
 }
 
 int main(int argc, char** argv){
