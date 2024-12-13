@@ -1,3 +1,6 @@
+#pragma once
+#include "include.h"
+
 char const* str_vkcolorspace(VkColorSpaceKHR colorspace){
 #define F(X) case VK_COLOR_SPACE_##X: return #X;
     switch(colorspace){

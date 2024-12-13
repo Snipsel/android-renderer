@@ -6,10 +6,14 @@
     <uses-permission android:name="android.permission.SET_RELEASE_APP"/>
     <application android:debuggable="true"
                  android:hasCode="false"
+                 android:theme="@style/theme"
                  android:label="${name}">
         <activity android:exported="true"
-                  android:configChanges="keyboardHidden|orientation"
                   android:label="${name}"
+                  android:configChanges="keyboardHidden|orientation|screenLayout|screenSize"
+                  android:colorMode="hdr"
+                  android:immersive="true"
+                  android:screenOrientation="sensorLandscape"
                   android:name="android.app.NativeActivity">
             <meta-data android:name="android.app.lib_name"
                        android:value="${name}"/>

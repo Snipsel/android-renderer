@@ -6,17 +6,16 @@ android_version=33
 build_tools_version=33.0.2
 ndk_version=25.2.9519653
 vulkan_version='1.3.296.0'
-
 cc_flags="-std=c++2b -fno-rtti -fno-exceptions -fvisibility=hidden \
 		 -Wall -Wextra -Wno-conversion -Wshadow -Wunused -Wno-missing-field-initializers \
 		 -MJ main_compile_command.json \
-		 -nostdlib++ -fPIC -shared -uANativeActivity_onCreate -landroid"
+		 -nostdlib++ -fPIC -shared -uANativeActivity_onCreate -landroid -pthread"
 cc_debug_flags="-O0 -llog"
 cc_release_flags="-O3 -DDISABLE_LOGGING"
 
 ####################################################################################################
 
-mkdir -p build/spv
+mkdir -p build/{spv,res,assets,lib/arm64-v8a}
 cd build
 toolchain="sdk/ndk/$ndk_version/toolchains/llvm/prebuilt/linux-x86_64"
 sdkmanager="sdk/cmdline-tools/latest/bin/sdkmanager"
@@ -59,12 +58,18 @@ if [ ! -f "debug.keystore" ]; then
 fi
 
 # compile shaders
-glslc -mfmt=c --target-env=vulkan1.3 -fshader-stage=vert ../shaders/triangle.vs.glsl -o spv/triangle.vs.h || exit 1
-glslc -mfmt=c --target-env=vulkan1.3 -fshader-stage=frag ../shaders/white.fs.glsl    -o spv/white.fs.h    || exit 1
+glslc -mfmt=c --target-env=vulkan1.0 -fshader-stage=vert ../shaders/gizmo.vs.glsl   -o spv/gizmo.vs.h   || exit 1
+glslc -mfmt=c --target-env=vulkan1.0 -fshader-stage=vert ../shaders/default.vs.glsl -o spv/default.vs.h || exit 1
+glslc -mfmt=c --target-env=vulkan1.0 -fshader-stage=frag ../shaders/default.fs.glsl -o spv/default.fs.h || exit 1
+
+# compile meshes
+clang++ --std=c++2b -o bakery ../bakery/main.cc -lassimp || exit 1
+./bakery ../assets/damaged_helmet.gltf > assets.h || exit 1
+#         ../assets/gizmo/gizmo.gltf > assets.h || exit 1
+#         ../assets/BoomBox.gltf \
 
 # compile program
 echo ">>> compiling program"
-mkdir -p lib/arm64-v8a
 #    --sysroot $toolchain/sysroot \
 #    --target=aarch64-unknown-linux-android$android_version \
 #    todo: compile aarch64 compiler-rt (libclang_rt.builtints-aarch64.a
@@ -88,9 +93,12 @@ unzip -p android-binaries-${vulkan_version}.zip android-binaries-${vulkan_versio
 echo ">>> packaging apk"
 android_version=$android_version name=$name package_name=$package_name \
 envsubst <../AndroidManifest.xml > AndroidManifest.xml 
-$aapt2 link -o unaligned.apk -v --no-compress \
+$aapt2 compile -o res --dir ../res
+$aapt2 link -o unaligned.apk -v \
     --manifest AndroidManifest.xml \
-    -I sdk/platforms/android-$android_version/android.jar
+    -I sdk/platforms/android-$android_version/android.jar \
+    -A assets \
+    res/* #--no-compress 
 zip -r unaligned.apk lib
 $zipalign -v 4 unaligned.apk -f $name.apk
 $apksigner sign --key-pass pass:debug_password --ks-pass pass:debug_password --ks debug.keystore $name.apk
