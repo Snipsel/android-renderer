@@ -1,5 +1,4 @@
 #pragma once
-#include "global.h"
 #include "include.h"
 
 VkShaderModule create_shader_module(uint32_t const* spv, size_t size_bytes){
@@ -394,6 +393,24 @@ void init_vulkan_device(){
     }
 
     ////////////////////////////////////////////////////////////////////////////////
+    // pipeline layout
+    {
+        VkPushConstantRange const push_constants{
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size   = sizeof(PushConstants),
+        };
+        VkPipelineLayoutCreateInfo const layout_info{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = &vk::descriptor_set_layout,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &push_constants,
+        };
+        VKCHECK(vkCreatePipelineLayout(vk::device, &layout_info, nullptr, &vk::graphics_pipeline_layout));
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
     // command buffers
     VkCommandPoolCreateInfo const cmd_pool_info{
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -503,23 +520,5 @@ void init_vulkan_device(){
             .pCommandBuffers = &vk::cmd,
         };
         VKCHECK(vkQueueSubmit(vk::graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
-    }
-
-    ////////////////////////////////////////////////////////////////////////////////
-    // pipeline layout
-    {
-        VkPushConstantRange const push_constants{
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-            .offset = 0,
-            .size   = sizeof(PushConstants),
-        };
-        VkPipelineLayoutCreateInfo const layout_info{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = 1,
-            .pSetLayouts = &vk::descriptor_set_layout,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &push_constants,
-        };
-        VKCHECK(vkCreatePipelineLayout(vk::device, &layout_info, nullptr, &vk::graphics_pipeline_layout));
     }
 }

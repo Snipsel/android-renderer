@@ -9,27 +9,48 @@ struct Mesh{
     int32_t albedo_height;
     AAsset* asset;
 
-    static constexpr VkFormat pos_format   = VK_FORMAT_R32G32B32_SFLOAT;
-    static constexpr int32_t  pos_stride   = 3*sizeof(float);
-    static constexpr VkFormat uv_format    = VK_FORMAT_R32G32_SFLOAT;
-    static constexpr int32_t  uv_stride    = 2*sizeof(float);
-    static constexpr int32_t  index_stride = sizeof(uint16_t);
+    struct Vertex{
+        vec2 uv;
+        vec3 normal;
+        vec3 tangent;
+    };
 
+    static constexpr VkFormat pos_format    = VK_FORMAT_R32G32B32_SFLOAT;
+    static constexpr int32_t  pos_stride    = sizeof(vec3);
+    static constexpr int32_t  index_stride  = sizeof(uint16_t);
+
+    // vertex buffer
+    static constexpr VkVertexInputBindingDescription const binding_descr[] =
+    { { .binding=0, .stride= pos_stride,     .inputRate= VK_VERTEX_INPUT_RATE_VERTEX
+    },{ .binding=1, .stride= sizeof(Vertex), .inputRate= VK_VERTEX_INPUT_RATE_VERTEX
+    } };
+    static constexpr VkVertexInputAttributeDescription const attr_descr[] =
+    { { .location=0, .binding=0, .format=pos_format,                 .offset= 0,
+    },{ .location=1, .binding=1, .format=VK_FORMAT_R32G32_SFLOAT,    .offset= offsetof(Vertex,uv),
+    },{ .location=2, .binding=1, .format=VK_FORMAT_R32G32B32_SFLOAT, .offset= offsetof(Vertex,normal),
+    },{ .location=3, .binding=1, .format=VK_FORMAT_R32G32B32_SFLOAT, .offset= offsetof(Vertex,tangent),
+    } };
+
+    // geometry
     inline VkDeviceSize pos_offset()    const { return 0; }
     inline VkDeviceSize pos_size()      const { return vertex_count*pos_stride; }
-    inline VkDeviceSize uv_offset()     const { return pos_offset()+pos_size(); }
-    inline VkDeviceSize uv_size()       const { return vertex_count*uv_stride; }
-    inline VkDeviceSize index_offset()  const { return uv_offset()+uv_size(); }
+    inline VkDeviceSize vertex_offset() const { return pos_offset()+pos_size(); }
+    inline VkDeviceSize vertex_size()   const { return vertex_count*sizeof(Vertex); }
+    inline VkDeviceSize index_offset()  const { return vertex_offset()+vertex_size(); }
     inline VkDeviceSize index_size()    const { return index_count*index_stride; }
+
+    // textures
     inline VkDeviceSize albedo_offset() const { return index_offset()+index_size(); }
     inline VkDeviceSize albedo_size()   const { return 4*albedo_width*albedo_height; }
 
+    // total sizes
     inline VkDeviceSize geometry_size() const {return albedo_offset(); }
     inline VkDeviceSize total_size()    const {return albedo_offset()+albedo_size(); }
 };
 
 struct PushConstants{
-    mat4 view;
+    mat4 mvp;
+    mat4 mv;
 };
 
 struct WindowState{

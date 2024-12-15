@@ -66,32 +66,12 @@ VkPipeline create_pipeline(VkShaderModule vs, VkShaderModule fs, VkPipelineLayou
     };
 
     // vertex buffer
-    VkVertexInputBindingDescription const binding_descr[] = {{
-        .binding   = 0,
-        .stride    = Mesh::pos_stride,
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-    },{
-        .binding   = 1,
-        .stride    = Mesh::uv_stride,
-        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-    }};
-    VkVertexInputAttributeDescription const attr_descr[] = {{
-        .location = 0,
-        .binding  = binding_descr[0].binding,
-        .format   = Mesh::pos_format,
-        .offset   = 0,
-    },{
-        .location = 1,
-        .binding  = binding_descr[1].binding,
-        .format   = Mesh::uv_format,
-        .offset   = 0,
-    }};
     VkPipelineVertexInputStateCreateInfo const vertex_input_info{
         .sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount   = LEN(binding_descr),
-        .pVertexBindingDescriptions      = binding_descr,
-        .vertexAttributeDescriptionCount = LEN(attr_descr),
-        .pVertexAttributeDescriptions    = attr_descr,
+        .vertexBindingDescriptionCount   = LEN(Mesh::binding_descr),
+        .pVertexBindingDescriptions      = Mesh::binding_descr,
+        .vertexAttributeDescriptionCount = LEN(Mesh::attr_descr),
+        .pVertexAttributeDescriptions    = Mesh::attr_descr,
     };
 
     VkPipelineInputAssemblyStateCreateInfo const input_assembly_info{

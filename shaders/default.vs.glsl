@@ -1,16 +1,25 @@
 #version 450
-
 layout(location=0) in  vec3 pos;
 layout(location=1) in  vec2 in_uv;
+layout(location=2) in  vec3 in_normal;
+layout(location=3) in  vec3 in_tangent;
+
 layout(location=0) out vec2 out_uv;
+layout(location=1) out vec3 out_normal;
+layout(location=2) out vec3 out_tangent;
 
 layout(push_constant) uniform _push {
-    mat4 view;
+    mat4 mvp;
+    mat4 mv;
 } push;
 
 void main(){
-    out_uv = in_uv;
-    //gl_Position = view*vec4(positions[gl_VertexIndex], 0.0, 1.0);
-    //gl_Position = vec4(pos.xyz, 1.0)*push.view;
-    gl_Position = push.view * vec4(pos.xyz, 1);
+    mat3 adjugate = mat3(
+        cross(push.mv[1].xyz, push.mv[2].xyz),
+        cross(push.mv[2].xyz, push.mv[0].xyz),
+        cross(push.mv[0].xyz, push.mv[1].xyz));
+    out_uv      = in_uv;
+    out_normal  = normalize(adjugate*in_normal );
+    out_tangent = normalize(adjugate*in_tangent);
+    gl_Position = push.mvp * vec4(pos.xyz, 1);
 }
