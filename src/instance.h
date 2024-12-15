@@ -32,6 +32,10 @@ void chain_pnext(VkBaseOutStructure* main_struct, VkBaseOutStructure* new_struct
     main_struct->pNext = new_struct;
 }
 
+int64_t align_up(int64_t addr, int64_t alignment){
+    return (addr+(alignment-1)) & -alignment;
+}
+
 void init_vulkan_device(){
     auto const vulkan_lib = dlopen("libvulkan.so", RTLD_LAZY);
     if( vulkan_lib == nullptr ) fatal("could not load libvulkan.so");
@@ -244,120 +248,141 @@ void init_vulkan_device(){
     }
 
     ////////////////////////////////////////////////////////////////////////////////
-    // texture
+    // textures
+    struct Config{
+        char const* debug_name;
+        VkExtent2D  extent;
+        VkFormat    format;
+    };
+    Arr configs = {
+        Config{ "albedo", mesh.albedo_extent, VK_FORMAT_R8G8B8A8_SRGB  },
+        Config{ "normal", mesh.normal_extent, VK_FORMAT_R8G8B8A8_UNORM }
+    };
+    constexpr int const img_count = LEN(configs);
     {
-        debug("allocating texture memory");
-        VkImageCreateInfo image_info{
-            .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .imageType     = VK_IMAGE_TYPE_2D,
-            .format        = VK_FORMAT_R8G8B8A8_SRGB,
-            .extent        = {(uint32_t)mesh.albedo_width, (uint32_t)mesh.albedo_height, 1},
-            .mipLevels     = 1,
-            .arrayLayers   = 1,
-            .samples       = VK_SAMPLE_COUNT_1_BIT,
-            .tiling        = VK_IMAGE_TILING_OPTIMAL,
-            .usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT
-                           | VK_IMAGE_USAGE_SAMPLED_BIT,
-            .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        };
+        // create images
+        for(int i=0; i<img_count; i++){
+            VkImageCreateInfo image_info{
+                .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                .imageType     = VK_IMAGE_TYPE_2D,
+                .format        = configs[i].format,
+                .extent        = {configs[i].extent.width, configs[i].extent.height, 1},
+                .mipLevels     = 1,
+                .arrayLayers   = 1,
+                .samples       = VK_SAMPLE_COUNT_1_BIT,
+                .tiling        = VK_IMAGE_TILING_OPTIMAL,
+                .usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                               | VK_IMAGE_USAGE_SAMPLED_BIT,
+                .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+                .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            };
+            VKCHECK(vkCreateImage(vk::device, &image_info, nullptr, &vk::images[i]));
+            vk_name((uint64_t)vk::images[i],  VK_OBJECT_TYPE_IMAGE, configs[i].debug_name);
+        }
 
-        VKCHECK(vkCreateImage(vk::device, &image_info, nullptr, &vk::albedo_image));
-        vk_name((uint64_t)vk::albedo_image,  VK_OBJECT_TYPE_IMAGE, "albedo-img");
-
-        VkMemoryRequirements req = {};
-        vkGetImageMemoryRequirements(vk::device, vk::albedo_image, &req);
-
+        // alloc space for all images
+        int64_t total_size = 0;
+        int64_t img_offsets[img_count] = {};
+        for(int i=0; i<img_count; i++){
+            VkMemoryRequirements memreq = {};
+            vkGetImageMemoryRequirements(vk::device, vk::images[i], &memreq);
+            total_size = align_up(total_size, memreq.alignment);
+            img_offsets[i] = total_size;
+            total_size += memreq.size;
+        }
         VkMemoryAllocateInfo albedo_alloc_info {
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize  = req.size,
+            .allocationSize  = (VkDeviceSize)total_size,
             .memoryTypeIndex = vk::device_local_memidx,
         };
-        VkDeviceMemory texture_memory = VK_NULL_HANDLE;
-        VKCHECK(vkAllocateMemory(vk::device, &albedo_alloc_info, nullptr, &texture_memory));
-        vk_name((uint64_t)texture_memory,  VK_OBJECT_TYPE_DEVICE_MEMORY, "texture-mem");
-        vkBindImageMemory(vk::device, vk::albedo_image, texture_memory, 0);
+        VKCHECK(vkAllocateMemory(vk::device, &albedo_alloc_info, nullptr, &vk::texture_memory));
+        vk_name((uint64_t)vk::texture_memory,  VK_OBJECT_TYPE_DEVICE_MEMORY, "texture-mem");
 
-        VkImageViewCreateInfo const albedo_view_info{
-            .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image    = vk::albedo_image,
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format   = image_info.format,
-            .subresourceRange = {
-                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel   = 0,
-                .levelCount     = 1,
-                .baseArrayLayer = 0,
-                .layerCount     = 1
-            }
-        };
-        VKCHECK(vkCreateImageView(vk::device, &albedo_view_info, nullptr, &vk::albedo_view));
-
-        VkSamplerCreateInfo const sampler_info{
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter = VK_FILTER_LINEAR,
-            .minFilter = VK_FILTER_LINEAR,
-            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .mipLodBias = 0.f,
-            .anisotropyEnable = VK_FALSE,
-            .compareEnable = VK_FALSE,
-            .compareOp = VK_COMPARE_OP_ALWAYS,
-            .minLod = 0.f,
-            .maxLod = 0.f,
-            .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-            .unnormalizedCoordinates = VK_FALSE,
-        };
-        VKCHECK(vkCreateSampler(vk::device, &sampler_info, nullptr, &vk::default_sampler));
+        // bind memory and create views
+        for(int i=0; i<img_count; i++){
+            vkBindImageMemory(vk::device, vk::images[i], vk::texture_memory, img_offsets[i]);
+            VkImageViewCreateInfo const albedo_view_info{
+                .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .image    = vk::images[i],
+                .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                .format   = configs[i].format,
+                .subresourceRange = {
+                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel   = 0,
+                    .levelCount     = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1
+                }
+            };
+            VKCHECK(vkCreateImageView(vk::device, &albedo_view_info, nullptr, &vk::views[i]));
+        }
         debug("done creating image resources");
     }
+
+    VkSamplerCreateInfo const sampler_info{
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_LINEAR,
+        .minFilter = VK_FILTER_LINEAR,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .mipLodBias = 0.f,
+        .anisotropyEnable = VK_FALSE,
+        .compareEnable = VK_FALSE,
+        .compareOp = VK_COMPARE_OP_ALWAYS,
+        .minLod = 0.f,
+        .maxLod = 0.f,
+        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+        .unnormalizedCoordinates = VK_FALSE,
+    };
+    VKCHECK(vkCreateSampler(vk::device, &sampler_info, nullptr, &vk::default_sampler));
 
     ////////////////////////////////////////////////////////////////////////////////
     // vertex+index buffer
     {
         VkBufferCreateInfo const buffer_info{
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size  = (uint64_t)mesh.total_size(),
+            .size  = (uint64_t)mesh.geometry_size(),
             .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         };
-        VKCHECK(vkCreateBuffer(vk::device, &buffer_info, nullptr, &vk::vertex_buffer));
+        VKCHECK(vkCreateBuffer(vk::device, &buffer_info, nullptr, &vk::geometry_buffer));
 
         VkMemoryRequirements mem_requirements;
-        vkGetBufferMemoryRequirements(vk::device, vk::vertex_buffer, &mem_requirements);
+        vkGetBufferMemoryRequirements(vk::device, vk::geometry_buffer, &mem_requirements);
 
         VkMemoryAllocateInfo const memalloc_info{
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize = mem_requirements.size,
             .memoryTypeIndex = vk::device_local_memidx,
         };
-        VkDeviceMemory vertex_buffer_mem;
-        VKCHECK(vkAllocateMemory(vk::device, &memalloc_info, nullptr, &vertex_buffer_mem));
-        VKCHECK(vkBindBufferMemory(vk::device, vk::vertex_buffer, vertex_buffer_mem, mesh.pos_offset()));
+        VKCHECK(vkAllocateMemory(vk::device, &memalloc_info, nullptr, &vk::geometry_memory));
+        VKCHECK(vkBindBufferMemory(vk::device, vk::geometry_buffer, vk::geometry_memory, mesh.pos_offset()));
     }
 
     ////////////////////////////////////////////////////////////////////////////////
     // descriptor sets
     {
-        VkDescriptorSetLayoutBinding const bindings[] {{
-            .binding = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = nullptr,
-        }};
+        auto const bindings = mapi<2>([](uint32_t i){
+            return VkDescriptorSetLayoutBinding{
+                .binding = i,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
+            };
+        });
         VkDescriptorSetLayoutCreateInfo const layout_info{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .bindingCount = LEN(bindings),
-            .pBindings = bindings,
+            .bindingCount = bindings.len(),
+            .pBindings = bindings.begin(),
         };
         VKCHECK(vkCreateDescriptorSetLayout(vk::device, &layout_info, nullptr, &vk::descriptor_set_layout));
 
         VkDescriptorPoolSize const pool_sizes[] {{
             .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
+            .descriptorCount = (uint32_t)img_count,
         }};
         VkDescriptorPoolCreateInfo const pool_info{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -375,19 +400,21 @@ void init_vulkan_device(){
         };
         VKCHECK(vkAllocateDescriptorSets(vk::device, &descriptor_set_alloc_info, &vk::descriptor_set));
 
-        VkDescriptorImageInfo const image_info{
-            .sampler   = vk::default_sampler,
-            .imageView = vk::albedo_view,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
+        auto const img_descr_info = mapi<2>([](uint32_t i){
+            return VkDescriptorImageInfo{
+                .sampler   = vk::default_sampler,
+                .imageView = vk::views[i],
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+        });
         VkWriteDescriptorSet const write_descriptors[]{{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstSet = vk::descriptor_set,
             .dstBinding = 0,
             .dstArrayElement = 0,
-            .descriptorCount = 1,
+            .descriptorCount = img_descr_info.len(),
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &image_info
+            .pImageInfo = img_descr_info.begin()
         }};
         vkUpdateDescriptorSets(vk::device, LEN(write_descriptors), write_descriptors, 0, nullptr);
     }
@@ -438,23 +465,26 @@ void init_vulkan_device(){
         vkBeginCommandBuffer(vk::cmd, &begin_info);
 
         // transition layout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-        VkImageMemoryBarrier const img_init_barriers[]{{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_NONE,
-            .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = vk::albedo_image,
-            .subresourceRange = {
-                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel   = 0,
-                .levelCount     = 1,
-                .baseArrayLayer = 0,
-                .layerCount     = 1,
-            },
-        }};
+        VkImageMemoryBarrier img_init_barriers[img_count];
+        for(int i=0; i<img_count; i++){
+            img_init_barriers[i] = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_NONE,
+                .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = vk::images[i],
+                .subresourceRange = {
+                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel   = 0,
+                    .levelCount     = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1,
+                },
+            };
+        };
         vkCmdPipelineBarrier(vk::cmd,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -464,20 +494,26 @@ void init_vulkan_device(){
             LEN(img_init_barriers), img_init_barriers);
 
         // copy staging buffer to image
-        VkBufferImageCopy region{
-            .bufferOffset      = mesh.albedo_offset(),
-            .bufferRowLength   = 0, // 0 means tightly packed
-            .bufferImageHeight = 0, // 0 means tightly packed
-            .imageSubresource = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .mipLevel = 0,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-            .imageOffset = {0,0,0},
-            .imageExtent = { (uint32_t)mesh.albedo_width, (uint32_t)mesh.albedo_height, 1 }
+        VkDeviceSize const buffer_offsets[img_count] = {
+            mesh.albedo_offset(),
+            mesh.normal_offset(),
         };
-        vkCmdCopyBufferToImage(vk::cmd, vk::staging_buffer, vk::albedo_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        for(int i=0; i<img_count; i++){
+            VkBufferImageCopy region{
+                .bufferOffset      = buffer_offsets[i],
+                .bufferRowLength   = 0, // 0 means tightly packed
+                .bufferImageHeight = 0, // 0 means tightly packed
+                .imageSubresource = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = 0,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+                .imageOffset = {0,0,0},
+                .imageExtent = { configs[i].extent.width, configs[i].extent.height, 1 }
+            };
+            vkCmdCopyBufferToImage(vk::cmd, vk::staging_buffer, vk::images[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        }
 
         // copy geometry
         VkBufferCopy const geometry_region{
@@ -485,26 +521,29 @@ void init_vulkan_device(){
             .dstOffset = 0,
             .size      = mesh.geometry_size(),
         };
-        vkCmdCopyBuffer(vk::cmd, vk::staging_buffer, vk::vertex_buffer, 1, &geometry_region);
+        vkCmdCopyBuffer(vk::cmd, vk::staging_buffer, vk::geometry_buffer, 1, &geometry_region);
 
         // transition layout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-        VkImageMemoryBarrier const img_copy_barriers[]{{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = vk::albedo_image,
-            .subresourceRange = {
-                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel   = 0,
-                .levelCount     = 1,
-                .baseArrayLayer = 0,
-                .layerCount     = 1,
-            },
-        }};
+        VkImageMemoryBarrier img_copy_barriers[img_count];
+        for(int i=0; i<img_count; i++){
+            img_copy_barriers[i] = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = vk::images[i],
+                .subresourceRange = {
+                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel   = 0,
+                    .levelCount     = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1,
+                },
+            };
+        }
         vkCmdPipelineBarrier(vk::cmd, 
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,

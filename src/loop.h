@@ -99,20 +99,27 @@ void record_frame(VkCommandBuffer cmd, uint32_t swapchain_idx){
 
     float const aspect = float(vk::win.swapchain_extent.width)/float(vk::win.swapchain_extent.height);
     //float const r = 1.5;
-    PushConstants push{};
-    push.mv  = translate({0,0,-3}) * roty;
-    push.mvp = win_transform()
-             * flip_y 
-             * perspective(1.f/aspect, 1.f, 0.1)
-             * push.mv;
+    mat4 model = mat4(1,0,0,0,
+                      0,1,0,0,
+                      0,0,1,0,
+                      0,0,0,1);
+    mat4 view  = translate({0,0,-3})
+               * roty;
+    mat4 projection = win_transform()
+                    * flip_y 
+                    * perspective(1.f/aspect, 1.f, 0.1);
+    PushConstants push{
+        .mvp   = projection * view * model,
+        .model = model,
+    };
     vkCmdPushConstants(cmd, vk::graphics_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
 
 #if 1
     Mesh& mesh = damaged_helmet;
-    VkBuffer     buffers[2] = {vk::vertex_buffer, vk::vertex_buffer};
+    VkBuffer     buffers[2] = {vk::geometry_buffer, vk::geometry_buffer};
     VkDeviceSize offset [2] = {(VkDeviceSize)mesh.pos_offset(), (VkDeviceSize)mesh.vertex_offset()};
     vkCmdBindVertexBuffers(vk::cmd, 0, LEN(offset), buffers, offset);
-    vkCmdBindIndexBuffer(vk::cmd, vk::vertex_buffer, mesh.index_offset(), VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(vk::cmd, vk::geometry_buffer, mesh.index_offset(), VK_INDEX_TYPE_UINT16);
     vkCmdDrawIndexed(cmd, mesh.index_count, 1, 0, 0, 0);
 #else
     vkCmdDraw(cmd, 3*4, 1, 0, 0);

@@ -5,18 +5,14 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include"stb_image.h"
 
-struct vec2{
-    float x, y;
-};
-
-struct vec3{
-    float x, y, z;
-};
+struct vec2{ float x, y; };
+struct vec3{ float x, y, z; };
 
 struct Vertex{
     vec2 uv;
     vec3 normal;
     vec3 tangent;
+    vec3 bitangent;
 };
 
 struct Extent{ int width, height; };
@@ -75,19 +71,18 @@ void load_mesh(char const * inpath){
     Vertex*   const out_vert   = (Vertex*)malloc(out_vert_size);
     uint16_t* const out_idx    = (uint16_t*)malloc(out_idx_size);
 
-
     for(int i=0; i<mesh.mNumVertices; i++){
         out_pos[i] = (vec3){
             .x = mesh.mVertices[i].x,
             .y = mesh.mVertices[i].y,
             .z = mesh.mVertices[i].z,
         };
-        out_vert[i] = (Vertex){
+        out_vert[i] = {
             .uv = {
                 .x = mesh.mTextureCoords[0][i].x,
                 .y = mesh.mTextureCoords[0][i].y
             },
-            .normal = {
+            .normal  = {
                 .x = mesh.mNormals[i].x,
                 .y = mesh.mNormals[i].y,
                 .z = mesh.mNormals[i].z,
@@ -95,8 +90,13 @@ void load_mesh(char const * inpath){
             .tangent = {
                 .x = mesh.mTangents[i].x,
                 .y = mesh.mTangents[i].y,
-                .z = mesh.mTangents[i].z,
-            }
+                .z = mesh.mTangents[i].z
+            },
+            .bitangent = {
+                .x = mesh.mBitangents[i].x,
+                .y = mesh.mBitangents[i].y,
+                .z = mesh.mBitangents[i].z
+            },
         };
     }
     for(int i=0; i<mesh.mNumFaces; i++){
@@ -118,15 +118,16 @@ void load_mesh(char const * inpath){
     fwrite(out_pos,  out_pos_size,  1, outfile);
     fwrite(out_vert, out_vert_size, 1, outfile);
     fwrite(out_idx,  out_idx_size,  1, outfile);
-    Extent albedo = write_img(*scene, aiTextureType_BASE_COLOR, inpath, parent_index, outfile);
+    Extent const albedo = write_img(*scene, aiTextureType_BASE_COLOR, inpath, parent_index, outfile);
+    Extent const normal = write_img(*scene, aiTextureType_NORMALS,    inpath, parent_index, outfile);
     fclose(outfile);
 
     printf("Mesh %s{\n", mesh.mName.data);
-    printf("    .filename      = \"%s\",\n", mesh.mName.data);
-    printf("    .vertex_count  = %u,\n",     mesh.mNumVertices);
-    printf("    .index_count   = %u,\n",   3*mesh.mNumFaces);
-    printf("    .albedo_width  = %u,\n",     albedo.width);
-    printf("    .albedo_height = %u,\n",     albedo.height);
+    printf("    .filename      = \"%s\",\n",  mesh.mName.data);
+    printf("    .vertex_count  = %u,\n",      mesh.mNumVertices);
+    printf("    .index_count   = %u,\n",    3*mesh.mNumFaces);
+    printf("    .albedo_extent = {%u,%u},\n", albedo.width,  albedo.height);
+    printf("    .normal_extent = {%u,%u},\n", normal.height, normal.height);
     printf("};\n");
 
     free(out_idx);

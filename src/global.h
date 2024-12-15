@@ -5,14 +5,15 @@ struct Mesh{
     char const* filename;
     int32_t vertex_count;
     int32_t index_count;
-    int32_t albedo_width;
-    int32_t albedo_height;
+    VkExtent2D albedo_extent;
+    VkExtent2D normal_extent;
     AAsset* asset;
 
     struct Vertex{
         vec2 uv;
         vec3 normal;
         vec3 tangent;
+        vec3 bitangent;
     };
 
     static constexpr VkFormat pos_format    = VK_FORMAT_R32G32B32_SFLOAT;
@@ -29,6 +30,7 @@ struct Mesh{
     },{ .location=1, .binding=1, .format=VK_FORMAT_R32G32_SFLOAT,    .offset= offsetof(Vertex,uv),
     },{ .location=2, .binding=1, .format=VK_FORMAT_R32G32B32_SFLOAT, .offset= offsetof(Vertex,normal),
     },{ .location=3, .binding=1, .format=VK_FORMAT_R32G32B32_SFLOAT, .offset= offsetof(Vertex,tangent),
+    },{ .location=4, .binding=1, .format=VK_FORMAT_R32G32B32_SFLOAT, .offset= offsetof(Vertex,bitangent),
     } };
 
     // geometry
@@ -41,16 +43,21 @@ struct Mesh{
 
     // textures
     inline VkDeviceSize albedo_offset() const { return index_offset()+index_size(); }
-    inline VkDeviceSize albedo_size()   const { return 4*albedo_width*albedo_height; }
+    inline VkDeviceSize albedo_size()   const { return 4*albedo_extent.width*albedo_extent.height; }
+    inline VkDeviceSize normal_offset() const { return albedo_offset()+albedo_size(); }
+    inline VkDeviceSize normal_size()   const { return 4*normal_extent.width*normal_extent.height; }
 
-    // total sizes
-    inline VkDeviceSize geometry_size() const {return albedo_offset(); }
-    inline VkDeviceSize total_size()    const {return albedo_offset()+albedo_size(); }
+    // buffer offsets
+    inline VkDeviceSize geometry_size()   const { return index_offset()+index_size(); }
+    inline VkDeviceSize textures_offset() const { return albedo_offset(); }
+    inline VkDeviceSize textures_size()   const { return normal_offset()+normal_size() - textures_offset(); }
+
+    inline VkDeviceSize total_size() const { return geometry_size()+textures_size(); }
 };
 
 struct PushConstants{
     mat4 mvp;
-    mat4 mv;
+    mat4 model;
 };
 
 struct WindowState{
@@ -96,16 +103,19 @@ namespace vk{
     uint32_t  uncached_memidx;
     VkBuffer  staging_buffer;
     void*     staging_buffer_ptr;
-    VkBuffer  vertex_buffer;
+    // geometry
+    VkDeviceMemory geometry_memory;
+    VkBuffer       geometry_buffer;
     // descriptor set
     VkPipelineLayout      graphics_pipeline_layout;
     VkDescriptorSetLayout descriptor_set_layout;
     VkDescriptorPool      descriptor_pool;
     VkDescriptorSet       descriptor_set;
-    // images
-    VkSampler   default_sampler;
-    VkImage     albedo_image;
-    VkImageView albedo_view;
+    // textures
+    VkDeviceMemory texture_memory;
+    VkSampler      default_sampler;
+    VkImage        images[2];
+    VkImageView    views[2];
     // window
     WindowState        win;
 }
