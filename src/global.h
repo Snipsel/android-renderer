@@ -58,6 +58,7 @@ struct Mesh{
 struct PushConstants{
     mat4 mvp;
     mat4 model;
+    vec4 eye;
 };
 
 struct WindowState{

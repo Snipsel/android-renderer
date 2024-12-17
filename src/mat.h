@@ -72,6 +72,7 @@ constexpr mat4 operator*(mat4 const& a, mat4 const& b){
     return ret;
 }
 
+
 constexpr vec4 operator*(mat4 const& l, vec4 const& r){
     return vec4{ dot(l(0), r), dot(l(1), r), dot(l(2), r), dot(l(3), r) };
 }
@@ -92,15 +93,14 @@ mat4 translate(vec3 p){
 }
 
 mat4 look_at(vec3 eye, vec3 target, vec3 global_up={0,1,0}){
-    vec3 const f = normalize(target-eye);
-    vec3 const r = normalize(cross(f, global_up));
-    vec3 const u = cross(r, f);
-    vec3 const t = { -dot(eye, r), -dot(eye, u), -dot(eye, f) };
+    vec3 const b = normalize(eye-target);
+    vec3 const r = normalize(cross(global_up, b));
+    vec3 const u = cross(b,r);
     return mat4(
-        r.x, f.x, u.x, 0,
-        r.y, f.y, u.y, 0, 
-        r.z, f.z, u.z, 0, 
-        t.x, t.y, t.z, 1);
+        r.x, r.y, r.z, -dot(eye,r),
+        u.x, u.y, u.z, -dot(eye,u),
+        b.x, b.y, b.z, -dot(eye,b),
+        0,   0,   0,   1);
 };
 
 mat4 ortho(float left, float right, float bottom, float top, float near, float far){
@@ -128,3 +128,11 @@ mat4 perspective(float aspect, float fovy, float near){
     );
 }
 
+struct mat3{
+    float elems[3*3];
+    constexpr mat3() = default;
+    constexpr mat3(mat4 m)
+        :elems{m(0,0), m(0,1), m(0,2),
+               m(1,0), m(1,1), m(1,2),
+               m(2,0), m(2,1), m(2,2)}{};
+};

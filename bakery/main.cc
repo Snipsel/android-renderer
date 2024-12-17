@@ -15,28 +15,29 @@ struct Vertex{
     vec3 bitangent;
 };
 
-struct Extent{ int width, height; };
+struct Img{
+    int width, height;
+    uint8_t* pixels;
+};
 
-Extent write_img(aiScene const& scene, aiTextureType texture_type, char const* inpath, int inpath_len, FILE* outfile){
+Img load_img(aiScene const& scene, aiTextureType texture_type, char const* inpath, int inpath_len){
     stbi_set_flip_vertically_on_load(true);
     aiMesh const& mesh = **scene.mMeshes;
-    aiString albedo_path = {};
-    if(scene.mMaterials[mesh.mMaterialIndex]->GetTexture(texture_type, mesh.mMaterialIndex, &albedo_path)!=AI_SUCCESS)
-        return Extent{0,0};
-    static char albedo_in_path[1<<10];
-    snprintf(albedo_in_path, sizeof(albedo_in_path), "%.*s/%s", inpath_len, inpath, albedo_path.data);
+    aiString path={};
+    if(scene.mMaterials[mesh.mMaterialIndex]->GetTexture(texture_type, mesh.mMaterialIndex, &path)!=AI_SUCCESS)
+        return Img{0,0,nullptr};
+    static char in_path[1<<10];
+    snprintf(in_path, sizeof(in_path), "%.*s/%s", inpath_len, inpath, path.data);
 
-    FILE* in_albedo = fopen(albedo_in_path, "rb");
+    FILE* in_albedo = fopen(in_path, "rb");
     if(!in_albedo){
-        fprintf(stderr, "file not found: \"%s\"\n", albedo_in_path);
+        fprintf(stderr, "file not found: \"%s\"\n", in_path);
         exit(1);
     }
-    Extent ret = {0,0};
-    uint8_t* pixels = stbi_load_from_file(in_albedo, &ret.width, &ret.height, NULL, 4);
+    Img ret = {0,0,nullptr};
+    ret.pixels = stbi_load_from_file(in_albedo, &ret.width, &ret.height, NULL, 4);
     fclose(in_albedo);
 
-    fwrite(pixels, 4*ret.width*ret.height, 1, outfile);
-    stbi_image_free(pixels);
     return ret;
 }
 
@@ -105,7 +106,19 @@ void load_mesh(char const * inpath){
         out_idx[3*i+2] = (uint16_t)mesh.mFaces[i].mIndices[2];
     }
 
-    fprintf(stderr, "faces: %d\n", mesh.mNumFaces);
+    Img const albedo = load_img(*scene, aiTextureType_BASE_COLOR, inpath, parent_index);
+    Img const normal = load_img(*scene, aiTextureType_NORMALS,    inpath, parent_index);
+    Img const metal_roughness = load_img(*scene, aiTextureType_DIFFUSE_ROUGHNESS, inpath, parent_index);
+
+    // pack roughness into the alpha channel of albedo
+    for(int i=0; i<albedo.width*albedo.height; i++){
+        albedo.pixels[4*i+3] = metal_roughness.pixels[4*i+1];
+    }
+
+    // pack metalic into the alpha channel of normal
+    for(int i=0; i<normal.width*normal.height; i++){
+        normal.pixels[4*i+3] = metal_roughness.pixels[4*i+2];
+    }
 
     static char outpath[1<<10];
     snprintf(outpath, sizeof(outpath), "assets/%s", mesh.mName.data);
@@ -118,8 +131,8 @@ void load_mesh(char const * inpath){
     fwrite(out_pos,  out_pos_size,  1, outfile);
     fwrite(out_vert, out_vert_size, 1, outfile);
     fwrite(out_idx,  out_idx_size,  1, outfile);
-    Extent const albedo = write_img(*scene, aiTextureType_BASE_COLOR, inpath, parent_index, outfile);
-    Extent const normal = write_img(*scene, aiTextureType_NORMALS,    inpath, parent_index, outfile);
+    fwrite(albedo.pixels, 4*albedo.width*albedo.height, 1, outfile);
+    fwrite(normal.pixels, 4*normal.width*normal.height, 1, outfile);
     fclose(outfile);
 
     printf("Mesh %s{\n", mesh.mName.data);
@@ -130,6 +143,8 @@ void load_mesh(char const * inpath){
     printf("    .normal_extent = {%u,%u},\n", normal.height, normal.height);
     printf("};\n");
 
+    stbi_image_free(normal.pixels);
+    stbi_image_free(albedo.pixels);
     free(out_idx);
     free(out_vert);
     free(out_pos);

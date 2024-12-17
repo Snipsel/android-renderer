@@ -103,14 +103,16 @@ void record_frame(VkCommandBuffer cmd, uint32_t swapchain_idx){
                       0,1,0,0,
                       0,0,1,0,
                       0,0,0,1);
-    mat4 view  = translate({0,0,-3})
-               * roty;
+    vec3 eye   = vec3{3*ct, 0, 3*st};
+    //vec3 eye = vec3{0,0,3};
+    mat4 view  = look_at(eye, vec3{0,0,0});
     mat4 projection = win_transform()
                     * flip_y 
                     * perspective(1.f/aspect, 1.f, 0.1);
     PushConstants push{
         .mvp   = projection * view * model,
         .model = model,
+        .eye   = vec4(eye, 1.0),
     };
     vkCmdPushConstants(cmd, vk::graphics_pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
 
